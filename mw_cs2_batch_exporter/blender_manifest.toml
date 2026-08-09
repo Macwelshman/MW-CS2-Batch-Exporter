@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "mw_cs2_batch_exporter"
-version = "0.1.1"
+version = "0.1.24"
 name = "MW CS2 Batch Exporter"
 tagline = "Export selected meshes as individual CS2-ready FBX files"
 maintainer = "MW"

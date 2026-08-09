@@ -1,6 +1,4 @@
-# MW CS2 Batch Exporter
-
-> Complete user guide for installing, preparing, checking, and exporting Cities: Skylines II mesh sets from Blender.
+# MW CS2 Batch Exporter — User Guide
 
 MW CS2 Batch Exporter is a Blender add-on for exporting Cities: Skylines II mesh sets. It exports every mesh in the chosen source as a separate FBX file, preserves each Blender object name as the filename, and groups related objects into an asset folder.
 
