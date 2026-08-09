@@ -4,7 +4,7 @@
 
 MW CS2 Batch Exporter is a Blender add-on for exporting Cities: Skylines II mesh sets. It exports every mesh in the chosen source as a separate FBX file, preserves each Blender object name as the filename, and groups related objects into an asset folder.
 
-This guide covers version **0.1.23**.
+This guide covers version **0.1.24**.
 
 ## Contents
 
@@ -32,7 +32,7 @@ The add-on uses Blender's built-in FBX exporter. No separate exporter or externa
 
 ## Install the add-on
 
-1. Download `mw_cs2_batch_exporter-0.1.23.zip` from the repository's latest release or `dist` folder.
+1. Download `mw_cs2_batch_exporter-0.1.24.zip` from the repository's latest release or `dist` folder.
 2. In Blender, open **Edit > Preferences**.
 3. Open **Add-ons**, or **Get Extensions** on Blender versions that use the Extensions interface.
 4. Choose **Install from Disk** and select the ZIP file. Do not extract it first.
@@ -140,7 +140,7 @@ Objects must be available in the active view layer. A mesh found in a chosen col
 | Destination | **Export Folder** | Chooses the parent folder in which asset folders will be created or reused. |
 | Options | **Overwrite Existing** | Allows same-named FBX files to be replaced. Off by default. |
 | Options | **Stop on Warnings** | Treats remaining warnings as export blockers. |
-| Options | **Ignore N-gons** | Omits intentional n-gons from the report. Export-time triangulation still occurs. |
+| Options | **Ignore N-gons** | Omits intentional n-gons from the report. **Triangulate Faces** remains disabled. |
 | Export Source | **Selected Objects** | Uses selected meshes in the active view layer. |
 | Export Source | **Collections** | Uses the quick collection picker or the visible collection list. |
 | Export Source | **Check Export Source** | Runs preflight without exporting or changing the scene. |
@@ -198,26 +198,31 @@ Warnings allow export by default. Enable **Stop on Warnings** when every warning
 | **Multiple materials** | A main or LOD1 mesh has more than one assigned material. Confirm that this matches the intended CS2 material layout. |
 | **LOD2 has materials** | A name containing `_LOD2` has material slots. LOD2 meshes should normally have zero material slots. |
 | **Submesh has materials** | A `_Win`, `_Wim`, `_Gls`, `_Gra`, or `_Wat` mesh has material slots. These special meshes should normally have zero slots. |
-| **N-gons used** | The mesh contains faces with more than four vertices, which may triangulate differently during export or import. |
+| **N-gons used** | The mesh contains faces with more than four vertices, which may be triangulated differently by downstream tools or CS2 import. |
 
 Material names do not need to match object names. Main and LOD1 meshes can share one material and texture set. The add-on checks slot layout, not a required material-name pattern.
 
-Use **Ignore N-gons** only after deciding the faces are intentional. The option hides the warning; it does not alter the mesh or disable export triangulation.
+Use **Ignore N-gons** only after deciding the faces are intentional. The option hides the warning; it does not alter the mesh. **Triangulate Faces** remains disabled in the FBX preset.
 
 ## FBX export settings
 
 The add-on applies one fixed preset to every mesh:
 
-- one mesh object per FBX
-- exact object name used as the filename
-- global scale `1.0`, with Blender unit scaling applied
-- forward axis `-Z`; up axis `Y`
-- evaluated modifiers included
-- triangulation performed during export without editing the source mesh
-- tangent space exported
-- animation disabled
+- path mode **Auto**; batch mode **Off**
+- **Selected Objects** enabled; other source-limit toggles disabled
+- all object-type filters enabled (the add-on selects one mesh for each individual export)
 - custom properties disabled
-- textures not embedded; file paths stripped
+- scale `1.0`; **Apply Scalings: All Local**
+- forward axis `-Z`; up axis `Y`
+- **Apply Unit**, **Use Space Transform**, and **Apply Transform** enabled
+- **Smoothing Groups** with evaluated modifiers enabled
+- subdivision surfaces, loose edges, triangulate faces, and tangent space disabled
+- vertex colours exported as **sRGB** without prioritising the active colour
+- primary bone axis `Y`; secondary bone axis `X`; armature FBX node type **Null**
+- only-deform-bones disabled; add-leaf-bones enabled
+- animation, key-all-bones, NLA strips, all actions, and force-start/end-keying enabled
+- sampling rate `1.0`; simplify `1.0`
+- textures not embedded
 
 Blender controls the FBX dialect written by its built-in exporter. Validate a representative export in the current Cities: Skylines II Editor before relying on the workflow for a full asset batch.
 
@@ -226,7 +231,7 @@ Blender controls the FBX dialect written by its built-in exporter. Validate a re
 The add-on is designed to leave Blender source data unchanged:
 
 - source meshes, materials, transforms, origins, UVs, and names are not edited
-- export triangulation and evaluated modifiers affect exported FBX data only
+- evaluated modifiers and transform conversion affect exported FBX data only
 - selected-object mode restores the original selection and active object after export
 - collection mode does not require the objects to remain selected
 - existing FBX files are protected unless **Overwrite Existing** is enabled
@@ -265,7 +270,7 @@ The object is still selected, but Blender can switch only an existing Properties
 
 ### A warning disappeared after enabling Ignore N-gons
 
-This is expected for **N-gons used** only. The mesh is unchanged and the FBX is still triangulated during export.
+This is expected for **N-gons used** only. The mesh is unchanged and **Triangulate Faces** remains disabled during export.
 
 ### Exported files are in an unexpected folder
 
