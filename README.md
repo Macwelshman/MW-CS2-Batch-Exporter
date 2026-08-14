@@ -32,6 +32,17 @@ The add-on uses Blender's built-in FBX exporter. No separate exporter or externa
 
 ## Install the add-on
 
+For automatic updates, add this repository under **Edit > Preferences > Get Extensions > Repositories**:
+
+`https://raw.githubusercontent.com/Macwelshman/MW-Blender-Extensions/main/index.json`
+
+Sync it, search for **MW CS2 Batch Exporter**, and click **Install**. Future
+published versions are then available through **Check for Updates**. If the
+add-on was previously installed from disk, remove that copy once and reinstall
+it from the MW repository.
+
+For a manual installation:
+
 1. Download `mw_cs2_batch_exporter-0.1.24.zip` from the repository's latest release or `dist` folder.
 2. In Blender, open **Edit > Preferences**.
 3. Open **Add-ons**, or **Get Extensions** on Blender versions that use the Extensions interface.
@@ -40,7 +51,8 @@ The add-on uses Blender's built-in FBX exporter. No separate exporter or externa
 6. Return to the 3D Viewport and press **N** to open the sidebar.
 7. Select the **MW CS2 Export** tab.
 
-To update, install the newer release ZIP and confirm that the version shown for the add-on is the expected version. If Blender continues to load an older copy, remove the old add-on, restart Blender, and then install the new ZIP.
+Manual installations must be replaced with a newer release ZIP. Repository
+installations use Blender's normal update controls.
 
 ## Prepare a scene
 
