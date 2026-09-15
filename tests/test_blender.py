@@ -93,7 +93,7 @@ def assert_cancelled_error(operator_call, expected_message):
 
 def main():
     addon.register()
-    assert addon.bl_info["version"] == (0, 1, 24)
+    assert addon.bl_info["version"] == (0, 1, 25)
     assert addon.FBX_EXPORT_SETTINGS == {
         "path_mode": "AUTO",
         "batch_mode": "OFF",
@@ -447,6 +447,22 @@ def main():
 
         existing_issues = addon.collect_issues(bpy.context, addon.selected_meshes(bpy.context), output_dir)
         assert sum(issue.message == "Existing FBX" for issue in existing_issues) == 4
+
+        for suffix in ("Wif", "Wio", "wIf", "wIo"):
+            for tail in ("", "_LOD1", "_LOD2"):
+                name = "Object_" + suffix + tail
+                assert addon.main_asset_name(name) == "Object"
+                assert addon._is_special_submesh(name)
+                assert str(addon.export_path(output_dir, name)).endswith("/Object/" + name + ".fbx")
+            original_name = fourth.name
+            fourth.name = "Object_" + suffix
+            issues = addon.collect_issues(bpy.context, [fourth], output_dir, check_existing=False)
+            assert not any(issue.message in addon.MATERIAL_ISSUE_MESSAGES for issue in issues)
+            fourth.data.materials.append(bpy.data.materials["Shared_Building_Material"])
+            issues = addon.collect_issues(bpy.context, [fourth], output_dir, check_existing=False)
+            assert any(issue.message == "Submesh has materials" for issue in issues)
+            fourth.data.materials.clear()
+            fourth.name = original_name
 
         assert addon.main_asset_name("Object") == "Object"
         assert addon.main_asset_name("Object_LOD1") == "Object"

@@ -1,8 +1,9 @@
 # MW CS2 Batch Exporter — User Guide
 
+
 MW CS2 Batch Exporter is a Blender add-on for exporting Cities: Skylines II mesh sets. It exports every mesh in the chosen source as a separate FBX file, preserves each Blender object name as the filename, and groups related objects into an asset folder.
 
-This guide covers version **0.1.24**.
+This guide covers version **0.1.25**.
 
 ## Contents
 
@@ -41,7 +42,7 @@ it from the MW repository.
 
 For a manual installation:
 
-1. Download `mw_cs2_batch_exporter-0.1.24.zip` from the repository's latest release or `dist` folder.
+1. Download `mw_cs2_batch_exporter-0.1.25.zip` from the repository's latest release or `dist` folder.
 2. In Blender, open **Edit > Preferences**.
 3. Open **Add-ons**, or **Get Extensions** on Blender versions that use the Extensions interface.
 4. Choose **Install from Disk** and select the ZIP file. Do not extract it first.
@@ -78,6 +79,8 @@ Station
 Station_LOD1
 Station_LOD2
 Station_Win
+Station_Wif
+Station_Wio
 ```
 
 creates:
@@ -88,19 +91,25 @@ creates:
     ├── Station.fbx
     ├── Station_LOD1.fbx
     ├── Station_LOD2.fbx
-    └── Station_Win.fbx
+    ├── Station_Win.fbx
+    ├── Station_Wif.fbx
+    └── Station_Wio.fbx
 ```
 
 The recognised grouping suffixes are:
 
 - `_LOD<number>`
 - `_Win`
+- `_Wif`
+- `_Wio`
 - `_Wim`
 - `_Gls`
 - `_Gra`
 - `_Wat`
 
 Suffix matching is case-insensitive and repeated suffixes are removed from the end. For example, `Station_Win_LOD1` is grouped in the `Station` folder while keeping the filename `Station_Win_LOD1.fbx`.
+
+`_Wif` and `_Wio` follow the same rules as `_Win`: they need no textures and should have zero material slots. The exporter warns about existing material slots; it does not remove them. UV checks still apply.
 
 Collection names do not determine output folders. Folder grouping always comes from each object's name. Existing matching asset folders are reused.
 
@@ -207,7 +216,7 @@ Warnings allow export by default. Enable **Stop on Warnings** when every warning
 | **No material** | A main or LOD1 mesh has no material. These meshes normally use one material. |
 | **Multiple materials** | A main or LOD1 mesh has more than one assigned material. Confirm that this matches the intended CS2 material layout. |
 | **LOD2 has materials** | A name containing `_LOD2` has material slots. LOD2 meshes should normally have zero material slots. |
-| **Submesh has materials** | A `_Win`, `_Wim`, `_Gls`, `_Gra`, or `_Wat` mesh has material slots. These special meshes should normally have zero slots. |
+| **Submesh has materials** | A `_Win`, `_Wif`, `_Wio`, `_Wim`, `_Gls`, `_Gra`, or `_Wat` mesh has material slots. These special meshes should normally have zero slots. |
 | **N-gons used** | The mesh contains faces with more than four vertices, which may be triangulated differently by downstream tools or CS2 import. |
 
 Material names do not need to match object names. Main and LOD1 meshes can share one material and texture set. The add-on checks slot layout, not a required material-name pattern.

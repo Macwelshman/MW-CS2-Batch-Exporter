@@ -24,7 +24,7 @@ from bpy.types import Operator, Panel, PropertyGroup, UIList
 bl_info = {
     "name": "MW CS2 Batch Exporter",
     "author": "MW",
-    "version": (0, 1, 24),
+    "version": (0, 1, 25),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > MW CS2 Export",
     "description": "Export selected meshes as individual CS2-ready FBX files",
@@ -45,8 +45,8 @@ WINDOWS_RESERVED = {
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
 }
-NO_MATERIAL_SUFFIXES = ("_win", "_wim", "_gls", "_gra", "_wat")
-GROUP_SUFFIX = re.compile(r"_(?:LOD\d+|Win|Wim|Gls|Gra|Wat)$", re.IGNORECASE)
+NO_MATERIAL_SUFFIXES = ("_win", "_wif", "_wio", "_wim", "_gls", "_gra", "_wat")
+GROUP_SUFFIX = re.compile(r"_(?:LOD\d+|Win|Wif|Wio|Wim|Gls|Gra|Wat)$", re.IGNORECASE)
 REPORT_ENTRY_SPACING = 0.15
 MATERIAL_ISSUE_MESSAGES = {
     "LOD2 has materials",
@@ -358,7 +358,7 @@ def collect_issues(context, objects, export_directory, check_existing=True, igno
                 issues.append(Issue("WARNING", name, "LOD2 has materials", "LOD2 meshes should have zero material slots for the CS2 import workflow."))
         elif _is_special_submesh(name):
             if material_slots:
-                issues.append(Issue("WARNING", name, "Submesh has materials", "Known CS2 special submeshes such as Win, Wim, Gls, Gra, and Wat should have zero material slots."))
+                issues.append(Issue("WARNING", name, "Submesh has materials", "Known CS2 special submeshes such as Win, Wif, Wio, Wim, Gls, Gra, and Wat should have zero material slots."))
         elif len(assigned_materials) != len(material_slots):
             issues.append(Issue("WARNING", name, "Empty material slots", "Remove empty material slots or assign a material to each slot."))
         elif not assigned_materials:
