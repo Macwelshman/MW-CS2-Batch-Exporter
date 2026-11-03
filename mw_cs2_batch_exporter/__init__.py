@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import shutil
 import struct
 import tempfile
 import textwrap
@@ -24,7 +25,7 @@ from bpy.types import Operator, Panel, PropertyGroup, UIList
 bl_info = {
     "name": "MW CS2 Batch Exporter",
     "author": "MW",
-    "version": (0, 1, 25),
+    "version": (0, 1, 26),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > MW CS2 Export",
     "description": "Export selected meshes as individual CS2-ready FBX files",
@@ -45,10 +46,11 @@ WINDOWS_RESERVED = {
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
 }
-NO_MATERIAL_SUFFIXES = ("_win", "_wif", "_wio", "_wim", "_gls", "_gra", "_wat")
-GROUP_SUFFIX = re.compile(r"_(?:LOD\d+|Win|Wif|Wio|Wim|Gls|Gra|Wat)$", re.IGNORECASE)
+SHADER_SUFFIXES = {suffix.lower(): suffix for suffix in ("Win", "Wif", "Wio", "Wim", "Gls", "Gra", "Wat")}
+LOD_SUFFIX = re.compile(r"lod[0-9]+", re.IGNORECASE)
 REPORT_ENTRY_SPACING = 0.15
 MATERIAL_ISSUE_MESSAGES = {
+    "Decal has materials",
     "LOD2 has materials",
     "Submesh has materials",
     "Empty material slots",
@@ -247,6 +249,76 @@ def _is_close_sequence(values, expected):
     return all(abs(a - b) <= EPSILON for a, b in zip(values, expected))
 
 
+def _rotation_is_identity(obj):
+    # matrix_basis includes the active rotation mode and delta transforms, but
+    # excludes parenting. Compare normalized columns to avoid scale ambiguity.
+    matrix = obj.matrix_basis.to_3x3()
+    for axis in range(3):
+        column = matrix.col[axis]
+        length = column.length
+        if not math.isfinite(length) or length <= EPSILON:
+            return False
+        sign = -1.0 if obj.scale[axis] * obj.delta_scale[axis] < 0 else 1.0
+        for row in range(3):
+            if abs(column[row] * sign / length - float(row == axis)) > EPSILON:
+                return False
+    return True
+
+
+def _validate_staged_fbx(path):
+    # Parse the complete binary stream; FINISHED alone does not prove output.
+    from io_scene_fbx import parse_fbx
+    root, version = parse_fbx.parse(os.fspath(path))
+    objects = next((element for element in root.elems if element.id == b"Objects"), None)
+    if not version or objects is None or not any(
+        element.id == b"Geometry" and element.props[-1] == b"Mesh"
+        and any(child.id == b"Vertices" and len(child.props[0]) for child in element.elems)
+        and any(child.id == b"PolygonVertexIndex" and len(child.props[0]) for child in element.elems)
+        for element in objects.elems
+    ):
+        raise RuntimeError(f"No mesh geometry in staged FBX: {path.name}")
+
+
+def _publish_staged_batch(pairs, staging, overwrite):
+    """Replace individual files atomically; undo the batch on handled failure."""
+    backups = {}
+    installed = []
+    try:
+        for index, (source, destination) in enumerate(pairs):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                if not overwrite:
+                    raise FileExistsError(f"Destination appeared during export: {destination}")
+                backup = staging / f"backup-{index}"
+                shutil.copy2(destination, backup)
+                backups[destination] = backup
+            # Record before replacement so interruption immediately afterwards
+            # still restores the destination.
+            if overwrite:
+                installed.append(destination)
+                os.replace(source, destination)
+            else:
+                # Exclusive creation also protects against a concurrent writer.
+                os.link(source, destination)
+                installed.append(destination)
+    except BaseException as exc:
+        failures = []
+        for destination in reversed(installed):
+            try:
+                if destination in backups:
+                    os.replace(backups[destination], destination)
+                else:
+                    destination.unlink(missing_ok=True)
+            except OSError as rollback_error:
+                failures.append(f"{destination}: {rollback_error}")
+        if failures:
+            raise RuntimeError(
+                f"Partial failure; rollback incomplete. Recovery files retained at {staging}. "
+                + "; ".join(failures)
+            ) from exc
+        raise RuntimeError(f"Batch failed; destination files restored: {exc}") from exc
+
+
 def _counted(value, singular):
     return f"{value} {singular if value == 1 else singular + 's'}"
 
@@ -263,29 +335,40 @@ def _portable_filename_error(name):
     return None
 
 
-def _is_special_submesh(name):
-    lower = name.casefold()
-    # Allow a LOD suffix after the material suffix, e.g. Asset_Win_LOD1.
-    return any(lower.endswith(suffix) or re.search(re.escape(suffix) + r"_lod\d+$", lower)
-               for suffix in NO_MATERIAL_SUFFIXES)
+def parse_mesh_name(name):
+    """Return (asset, lod, shader, canonical stem, error).
 
+    Invalid names have no classification. A canonical stem is supplied for
+    unambiguous repairs, but never used as an export destination on error.
+    """
+    parts = name.split("_")
+    suffixes = []
+    while len(parts) > 1:
+        token = parts[-1].lower()
+        if token not in SHADER_SUFFIXES and not LOD_SUFFIX.fullmatch(token):
+            break
+        suffixes.insert(0, parts.pop().lower())
 
-def _is_lod2(name):
-    return re.search(r"(?:^|_)LOD2(?:_|$)", name, re.IGNORECASE) is not None
-
-
-def main_asset_name(name):
-    """Return the shared CS2 asset name after removing variant suffixes."""
-    base = name
-    while True:
-        stripped = GROUP_SUFFIX.sub("", base)
-        if stripped == base or not stripped:
-            return base
-        base = stripped
+    asset = "_".join(parts)
+    lods = list(dict.fromkeys(token for token in suffixes if LOD_SUFFIX.fullmatch(token)))
+    shaders = list(dict.fromkeys(token for token in suffixes if token in SHADER_SUFFIXES))
+    if not asset or len(lods) > 1 or len(shaders) > 1:
+        return None, None, None, None, "Choose an asset name and at most one LOD and one shader suffix."
+    if lods and lods[0] not in ("lod1", "lod2"):
+        return None, None, None, None, "Use LOD1 or LOD2 for a supported LOD, or omit the LOD suffix for the main mesh."
+    lod = int(lods[0][-1]) if lods else 0
+    shader = SHADER_SUFFIXES[shaders[0]] if shaders else None
+    canonical = asset + (f"_LOD{lod}" if lod else "") + (f"_{shader}" if shader else "")
+    if canonical.lower() != name.lower():
+        return None, None, None, canonical, "Put the LOD before the shader and use each suffix only once."
+    return asset, lod, shader, canonical, None
 
 
 def export_path(directory, object_name):
-    return Path(directory) / main_asset_name(object_name) / f"{object_name}.fbx"
+    asset, _, _, canonical, error = parse_mesh_name(object_name)
+    if error:
+        raise ValueError(f"{object_name}: {error}")
+    return Path(directory) / asset / f"{canonical}.fbx"
 
 
 def _has_valid_export_destination(export_directory):
@@ -295,7 +378,7 @@ def _has_valid_export_destination(export_directory):
     return not directory.exists() or directory.is_dir()
 
 
-def collect_issues(context, objects, export_directory, check_existing=True, ignore_ngons=False):
+def collect_issues(context, objects, export_directory, check_existing=True):
     issues = []
 
     if not objects:
@@ -315,6 +398,7 @@ def collect_issues(context, objects, export_directory, check_existing=True, igno
 
     directory = Path(bpy.path.abspath(export_directory)) if export_directory else None
 
+    decals = {entry.object for entry in scene.cs2_batch_export_settings.decals if entry.object}
     seen_names = {}
     for obj in objects:
         name = obj.name
@@ -322,7 +406,24 @@ def collect_issues(context, objects, export_directory, check_existing=True, igno
         if filename_error:
             issues.append(Issue("ERROR", name, "Invalid filename", filename_error))
 
-        portable_key = f"{name}.fbx".casefold()
+        asset, lod, shader, canonical, naming_error = parse_mesh_name(name)
+        if naming_error:
+            recommendation = (
+                f"Rename to '{canonical}' for '{canonical}.fbx'." if canonical else
+                "Use '<Asset>[_LOD1 or _LOD2][_Shader].fbx' with the intended mesh role."
+            )
+            issues.append(Issue("ERROR", name, "Invalid CS2 mesh name",
+                                f"'{name}.fbx': {naming_error} {recommendation}"))
+        elif canonical != name:
+            issues.append(Issue("ERROR", name, "Noncanonical suffix casing",
+                                f"'{name}.fbx' must export as '{canonical}.fbx'. "
+                                f"Rename the Blender object to '{canonical}' so the FBX mesh name matches."))
+        if not naming_error and not filename_error:
+            folder_error = _portable_filename_error(asset)
+            if folder_error:
+                issues.append(Issue("ERROR", name, "Invalid asset folder", folder_error))
+
+        portable_key = f"{canonical or name}.fbx".casefold()
         if portable_key in seen_names:
             issues.append(Issue(
                 "ERROR", name, "Filename conflict",
@@ -331,18 +432,18 @@ def collect_issues(context, objects, export_directory, check_existing=True, igno
         else:
             seen_names[portable_key] = name
 
-        if directory and directory.is_dir() and check_existing:
+        if not naming_error and not filename_error and directory and directory.is_dir() and check_existing:
             destination = export_path(directory, name)
             if destination.exists():
                 issues.append(Issue("ERROR", name, "Existing FBX", "An FBX with this name already exists. Enable Overwrite Existing to replace it."))
 
-        if not _is_close_sequence(obj.scale, (1.0, 1.0, 1.0)):
+        if (not _is_close_sequence(obj.scale, (1.0, 1.0, 1.0))
+                or not _is_close_sequence(obj.delta_scale, (1.0, 1.0, 1.0))):
             issues.append(Issue("ERROR", name, "Scale not applied", "Apply the object's scale so it reads 1, 1, 1 before export."))
-        if any(value < 0.0 for value in obj.scale):
+        if any(value < 0.0 for value in (*obj.scale, *obj.delta_scale)):
             issues.append(Issue("ERROR", name, "Negative scale", "Negative scale can invert mesh handedness and normals during FBX export."))
-        if not _is_close_sequence(obj.rotation_euler, (0.0, 0.0, 0.0)):
-            degrees = tuple(round(math.degrees(value), 3) for value in obj.rotation_euler)
-            issues.append(Issue("ERROR", name, "Rotation not applied", f"Apply the object's rotation. Current Euler rotation: {degrees} degrees."))
+        if not _rotation_is_identity(obj):
+            issues.append(Issue("ERROR", name, "Rotation not applied", "Apply the object's effective local rotation (including delta rotation) before export."))
         mesh = obj.data
         if not mesh.vertices or not mesh.polygons:
             issues.append(Issue("ERROR", name, "Empty mesh", "The mesh contains no faces that can be exported."))
@@ -353,10 +454,15 @@ def collect_issues(context, objects, export_directory, check_existing=True, igno
 
         material_slots = list(obj.material_slots)
         assigned_materials = [slot.material for slot in material_slots if slot.material]
-        if _is_lod2(name):
+        if naming_error:
+            continue
+        if obj in decals:
+            if material_slots:
+                issues.append(Issue("WARNING", name, "Decal has materials", "Decals should have zero material slots. The exporter does not remove materials."))
+        elif lod == 2:
             if material_slots:
                 issues.append(Issue("WARNING", name, "LOD2 has materials", "LOD2 meshes should have zero material slots for the CS2 import workflow."))
-        elif _is_special_submesh(name):
+        elif shader:
             if material_slots:
                 issues.append(Issue("WARNING", name, "Submesh has materials", "Known CS2 special submeshes such as Win, Wif, Wio, Wim, Gls, Gra, and Wat should have zero material slots."))
         elif len(assigned_materials) != len(material_slots):
@@ -365,12 +471,6 @@ def collect_issues(context, objects, export_directory, check_existing=True, igno
             issues.append(Issue("WARNING", name, "No material", "Main and LOD1 meshes normally use one material, which may be shared with other meshes."))
         elif len(assigned_materials) > 1:
             issues.append(Issue("WARNING", name, "Multiple materials", "Main and LOD1 meshes normally use one material. Multiple slots may not match the intended CS2 material layout."))
-
-        if not ignore_ngons and any(len(poly.vertices) > 4 for poly in mesh.polygons):
-            issues.append(Issue(
-                "WARNING", name, "N-gons used",
-                "Faces with more than four vertices may be triangulated differently by downstream tools or CS2 import.",
-            ))
 
     return issues
 
@@ -419,7 +519,6 @@ def _collect_preflight(context, settings, source):
         issues.extend(collect_issues(
             context, objects, settings.export_directory,
             check_existing=not settings.overwrite_existing,
-            ignore_ngons=settings.ignore_ngons,
         ))
     return objects, report_objects, issues, source_label
 
@@ -607,7 +706,12 @@ class CS2BatchCollectionEntry(PropertyGroup):
     collection: PointerProperty(type=bpy.types.Collection, options={"SKIP_SAVE"})
 
 
+class CS2BatchDecalEntry(PropertyGroup):
+    object: PointerProperty(type=bpy.types.Object)
+
+
 class CS2BatchExportSettings(PropertyGroup):
+    decals: CollectionProperty(type=CS2BatchDecalEntry)
     source_mode: EnumProperty(
         name="Source",
         description="Choose whether the shared Check and Export actions use selected objects or collections",
@@ -632,11 +736,6 @@ class CS2BatchExportSettings(PropertyGroup):
     stop_on_warnings: BoolProperty(
         name="Stop on Warnings",
         description="Do not export while any preflight warning remains",
-        default=False,
-    )
-    ignore_ngons: BoolProperty(
-        name="Ignore N-gons",
-        description="Do not report intentional N-gons as warnings; meshes are unchanged and FBX Triangulate Faces remains disabled",
         default=False,
     )
     overwrite_existing: BoolProperty(
@@ -882,6 +981,38 @@ class CS2BATCH_OT_remove_collection(Operator):
         return {"FINISHED"}
 
 
+class CS2BATCH_OT_define_decals(Operator):
+    bl_idname = "cs2_batch.define_decals"
+    bl_label = "Define Decals"
+    bl_description = "Mark selected meshes as decals, which expect no material slots; clear to restore normal material checks"
+    bl_options = {"REGISTER", "UNDO"}
+
+    clear: BoolProperty(default=False, options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT" and bool(selected_meshes(context))
+
+    def execute(self, context):
+        scene = context.scene
+        entries = scene.cs2_batch_export_settings.decals
+        objects = set(selected_meshes(context))
+        for index in reversed(range(len(entries))):
+            if entries[index].object is None or (self.clear and entries[index].object in objects):
+                entries.remove(index)
+        if not self.clear:
+            existing = {entry.object for entry in entries}
+            for obj in objects - existing:
+                entries.add().object = obj
+        # Material classifications changed; discard the now-stale preflight report.
+        scene.cs2_batch_export_report = ""
+        scene.cs2_batch_export_report_groups.clear()
+        scene.cs2_batch_export_report_rows.clear()
+        scene.cs2_batch_export_report_index = 0
+        self.report({"INFO"}, f"{'Cleared decal status for' if self.clear else 'Defined as decals:'} {len(objects)} mesh object(s)")
+        return {"FINISHED"}
+
+
 class CS2BATCH_OT_check(Operator):
     bl_idname = "cs2_batch.check_selected"
     bl_label = "Check Export Source"
@@ -963,27 +1094,36 @@ class CS2BATCH_OT_export(Operator):
         original_selection = list(context.selected_objects)
         original_active = context.view_layer.objects.active
         exported = []
+        staging = None
         try:
+            staging = Path(tempfile.mkdtemp(prefix=".mw-cs2-stage-", dir=directory))
+            pairs = []
             for obj in objects:
                 bpy.ops.object.select_all(action="DESELECT")
                 obj.select_set(True)
                 context.view_layer.objects.active = obj
                 destination = export_path(directory, obj.name)
-                destination.parent.mkdir(parents=True, exist_ok=True)
+                staged = staging / f"{len(pairs)}.fbx"
                 result = bpy.ops.export_scene.fbx(
-                    filepath=os.fspath(destination),
+                    filepath=os.fspath(staged),
                     check_existing=False,
                     **FBX_EXPORT_SETTINGS,
                 )
                 if result != {"FINISHED"}:
                     raise RuntimeError(f"Blender FBX exporter returned {result!r}")
-                exported.append(os.fspath(destination.relative_to(directory)))
-        except Exception as exc:  # Blender operators can raise several runtime exception types.
+                _validate_staged_fbx(staged)
+                pairs.append((staged, destination))
+            _publish_staged_batch(pairs, staging, settings.overwrite_existing)
+            exported = [os.fspath(destination.relative_to(directory)) for _, destination in pairs]
+            shutil.rmtree(staging, ignore_errors=True)
+        except (Exception, KeyboardInterrupt) as exc:
             issues.append(Issue("ERROR", "Export", "FBX export failed", str(exc)))
-            _store_report(scene, issues, f"Export failed after {len(exported)} file(s)", report_objects)
-            self.report({"ERROR"}, f"Export failed after {len(exported)} file(s).")
+            _store_report(scene, issues, f"Export failed; no complete batch published: {exc}", report_objects)
+            self.report({"ERROR"}, "Export failed. Review the report for destination/recovery details.")
             return {"CANCELLED"}
         finally:
+            if staging and not any(staging.glob("backup-*")):
+                shutil.rmtree(staging, ignore_errors=True)
             bpy.ops.object.select_all(action="DESELECT")
             for obj in original_selection:
                 if obj.name in context.view_layer.objects:
@@ -1021,7 +1161,19 @@ class CS2BATCH_PT_panel(Panel):
         row = options.row(align=True)
         row.prop(settings, "overwrite_existing")
         row.prop(settings, "stop_on_warnings")
-        options.prop(settings, "ignore_ngons")
+
+        selected = set(selected_meshes(context))
+        decal_objects = {entry.object for entry in settings.decals if entry.object}
+        all_decals = bool(selected) and selected <= decal_objects
+        decal_toggle = options.row()
+        decal_toggle.alignment = "LEFT"
+        decal_toggle.enabled = context.mode == "OBJECT" and bool(selected)
+        decal_toggle.operator(
+            "cs2_batch.define_decals", text="Decals",
+            icon="CHECKBOX_HLT" if all_decals else "CHECKBOX_DEHLT",
+            emboss=False,
+        ).clear = all_decals
+
 
         source_box = layout.box()
         source_box.label(text="Export Source", icon="OUTLINER_COLLECTION")
@@ -1119,6 +1271,7 @@ class CS2BATCH_PT_panel(Panel):
 
 CLASSES = (
     CS2BatchCollectionEntry,
+    CS2BatchDecalEntry,
     CS2BatchReportIssue,
     CS2BatchReportGroup,
     CS2BatchReportRow,
@@ -1131,6 +1284,7 @@ CLASSES = (
     CS2BATCH_OT_clear_report,
     CS2BATCH_OT_add_collection,
     CS2BATCH_OT_remove_collection,
+    CS2BATCH_OT_define_decals,
     CS2BATCH_OT_check,
     CS2BATCH_OT_export,
     CS2BATCH_PT_panel,

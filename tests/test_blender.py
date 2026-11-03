@@ -1,8 +1,10 @@
+import json
 import os
 import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
+from pathlib import Path
 
 import bpy
 
@@ -92,8 +94,9 @@ def assert_cancelled_error(operator_call, expected_message):
 
 
 def main():
+    print(f"MW_CS2_TEST_BLENDER_VERSION: {bpy.app.version_string}", flush=True)
     addon.register()
-    assert addon.bl_info["version"] == (0, 1, 25)
+    assert addon.bl_info["version"] == (0, 1, 26)
     assert addon.FBX_EXPORT_SETTINGS == {
         "path_mode": "AUTO",
         "batch_mode": "OFF",
@@ -169,7 +172,7 @@ def main():
     assert addon._counted(1, "error") == "1 error"
     assert addon._counted(2, "error") == "2 errors"
     tooltip = addon.CS2BATCH_OT_report_detail.description(
-        None, SimpleNamespace(message="N-gons used", detail="Detailed explanation"),
+        None, SimpleNamespace(message="No UV map", detail="Detailed explanation"),
     )
     assert tooltip == "Detailed explanation"
     material_tooltip = addon.CS2BATCH_OT_open_material_issue.description(
@@ -205,7 +208,7 @@ def main():
         settings.overwrite_existing = False
         empty_source_issues = addon.collect_issues(bpy.context, [], "", check_existing=False)
         assert {issue.message for issue in empty_source_issues} == {"No mesh objects"}
-        assert "Triangulate Faces remains disabled" in settings.bl_rna.properties["ignore_ngons"].description
+        assert "ignore_ngons" not in settings.bl_rna.properties
         assert not settings.report_expanded
         empty_report_layout = FakeLayout()
         addon.CS2BATCH_PT_panel.draw(SimpleNamespace(layout=empty_report_layout), bpy.context)
@@ -403,7 +406,7 @@ def main():
         collection_layout = FakeLayout()
         addon.CS2BATCH_PT_panel.draw(SimpleNamespace(layout=collection_layout), bpy.context)
         assert ("prop", "source_mode", True) in collection_layout.events
-        assert ("prop", "ignore_ngons", False) in collection_layout.events
+        assert not any(event[:2] == ("prop", "ignore_ngons") for event in collection_layout.events)
         assert ("template_list", "CS2BATCH_UL_collections", 2, 4) in collection_layout.events
         assert any(event[:2] == ("template_list", "CS2BATCH_UL_report_rows") for event in collection_layout.events)
         assert sum(
@@ -449,11 +452,6 @@ def main():
         assert sum(issue.message == "Existing FBX" for issue in existing_issues) == 4
 
         for suffix in ("Wif", "Wio", "wIf", "wIo"):
-            for tail in ("", "_LOD1", "_LOD2"):
-                name = "Object_" + suffix + tail
-                assert addon.main_asset_name(name) == "Object"
-                assert addon._is_special_submesh(name)
-                assert str(addon.export_path(output_dir, name)).endswith("/Object/" + name + ".fbx")
             original_name = fourth.name
             fourth.name = "Object_" + suffix
             issues = addon.collect_issues(bpy.context, [fourth], output_dir, check_existing=False)
@@ -464,13 +462,26 @@ def main():
             fourth.data.materials.clear()
             fourth.name = original_name
 
-        assert addon.main_asset_name("Object") == "Object"
-        assert addon.main_asset_name("Object_LOD1") == "Object"
-        assert addon.main_asset_name("Object_LOD2_Win") == "Object"
-        assert addon.main_asset_name("Object_Win_LOD1") == "Object"
-        assert addon._is_lod2("Object_LOD2")
-        assert addon._is_lod2("Object_LOD2_Win")
-        assert addon._is_lod2("Object_Win_LOD2")
+        fixture = json.loads(Path(__file__).with_name("cs2_mesh_names.json").read_text())
+        original_name = fourth.name
+        for case in fixture["cases"]:
+            fourth.name = Path(case["input"]).stem
+            asset, lod, shader, stem, error = addon.parse_mesh_name(fourth.name)
+            assert (asset, lod, shader) == (case["asset"], case["lod"], case["shader"]), case
+            assert (f"{stem}.fbx" if stem else None) == case["canonical"], case
+            assert (error is None) == case["valid"], case
+            issues = addon.collect_issues(bpy.context, [fourth], output_dir, check_existing=False)
+            if case["valid"]:
+                assert addon.export_path(output_dir, fourth.name) == Path(output_dir) / asset / case["canonical"]
+                assert not any(issue.message == "Invalid CS2 mesh name" for issue in issues)
+                if case["input"] != case["canonical"]:
+                    assert any(issue.severity == "ERROR" and case["canonical"] in issue.detail for issue in issues)
+            else:
+                issue = next(issue for issue in issues if issue.message == "Invalid CS2 mesh name")
+                assert issue.severity == "ERROR" and case["input"] in issue.detail
+                if case["canonical"]:
+                    assert case["canonical"] in issue.detail
+        fourth.name = original_name
 
         third.data.materials.append(bpy.data.materials["Shared_Building_Material"])
         lod2_issues = addon.collect_issues(bpy.context, [third], output_dir, check_existing=False)
@@ -558,20 +569,19 @@ def main():
         bpy.context.collection.objects.link(ngon)
         ngon.data.materials.append(bpy.data.materials.new("Ngon_Material"))
         ngon_issues = addon.collect_issues(bpy.context, [ngon], output_dir, check_existing=False)
-        assert any(issue.message == "N-gons used" and issue.detail for issue in ngon_issues)
-        ignored_ngon_issues = addon.collect_issues(
-            bpy.context, [ngon], output_dir, check_existing=False, ignore_ngons=True,
-        )
-        assert not any(issue.message == "N-gons used" for issue in ignored_ngon_issues)
+        assert not ngon_issues, ngon_issues
+        ngon_mesh.uv_layers.remove(ngon_mesh.uv_layers.active)
+        ngon_issues = addon.collect_issues(bpy.context, [ngon], output_dir, check_existing=False)
+        assert any(issue.message == "No UV map" for issue in ngon_issues)
         addon._store_report(scene, ngon_issues, "Checked 1 mesh object", [ngon])
         assert settings.report_expanded
         assert "SUMMARY\t0 errors, 1 warning" in scene.cs2_batch_export_report
         assert addon._report_summary(scene) == "1 object checked · 0 errors · 1 warning"
         assert "SECTION\tNgon" in scene.cs2_batch_export_report
-        assert "WARNING\tN-gons used\tFaces with more than four vertices" in scene.cs2_batch_export_report
+        assert "WARNING\tNo UV map\tAdd a UV map before texturing" in scene.cs2_batch_export_report
         assert [(row.kind, row.object_name, row.count_text, row.message) for row in scene.cs2_batch_export_report_rows] == [
             ("HEADER", "Ngon", "1 warning", ""),
-            ("ISSUE", "Ngon", "", "N-gons used"),
+            ("ISSUE", "Ngon", "", "No UV map"),
         ]
         layout = FakeLayout()
         addon.CS2BATCH_PT_panel.draw(SimpleNamespace(layout=layout), bpy.context)
@@ -599,7 +609,7 @@ def main():
             scene.cs2_batch_export_report_rows[1], 0,
             scene, "cs2_batch_export_report_index", 1,
         )
-        assert ("label", "Warning · N-gons used") in issue_layout.events
+        assert ("label", "Warning · No UV map") in issue_layout.events
         assert ("alert", True) not in issue_layout.events
         assert any(
             event[0] == "label_options" and all(
@@ -671,17 +681,18 @@ def main():
         bpy.context.view_layer.objects.active = ngon
         settings.overwrite_existing = True
         settings.stop_on_warnings = True
-        settings.ignore_ngons = True
+        ngon_mesh.uv_layers.new(name="UVMap")
         assert bpy.ops.cs2_batch.check_selected(source="SELECTION") == {"FINISHED"}
         assert addon._report_summary(scene) == "1 object checked · 0 errors · 0 warnings"
-        assert "N-gons used" not in scene.cs2_batch_export_report
+        assert "No UV map" not in scene.cs2_batch_export_report
         assert bpy.ops.cs2_batch.export_selected(source="SELECTION") == {"FINISHED"}
         assert os.path.exists(os.path.join(output_dir, "Ngon", "Ngon.fbx"))
 
-        settings.ignore_ngons = False
+        if ngon_mesh.uv_layers:
+            ngon_mesh.uv_layers.remove(ngon_mesh.uv_layers.active)
         assert bpy.ops.cs2_batch.check_selected(source="SELECTION") == {"FINISHED"}
         assert addon._report_summary(scene) == "1 object checked · 0 errors · 1 warning"
-        assert "N-gons used" in scene.cs2_batch_export_report
+        assert "No UV map" in scene.cs2_batch_export_report
         try:
             blocked_export = bpy.ops.cs2_batch.export_selected(source="SELECTION")
         except RuntimeError as exc:
@@ -715,7 +726,8 @@ def main():
         for obj in many_objects:
             obj.select_set(True)
         bpy.context.view_layer.objects.active = many_objects[0]
-        settings.ignore_ngons = False
+        if ngon_mesh.uv_layers:
+            ngon_mesh.uv_layers.remove(ngon_mesh.uv_layers.active)
         assert bpy.ops.cs2_batch.check_selected(source="SELECTION") == {"FINISHED"}
         assert addon._report_summary(scene) == "30 objects checked · 0 errors · 30 warnings"
         assert len(scene.cs2_batch_export_report_groups) == 30
@@ -786,10 +798,10 @@ def main():
         assert ("label", "ReportObject_17") in list_layout.events
         assert ("label", "1 warning") in list_layout.events
 
-        settings.ignore_ngons = True
+        ngon_mesh.uv_layers.new(name="UVMap")
         assert bpy.ops.cs2_batch.check_selected(source="SELECTION") == {"FINISHED"}
         assert addon._report_summary(scene) == "30 objects checked · 0 errors · 0 warnings"
-        assert "N-gons used" not in scene.cs2_batch_export_report
+        assert "No UV map" not in scene.cs2_batch_export_report
         assert len(scene.cs2_batch_export_report_groups) == 30
         assert len(scene.cs2_batch_export_report_rows) == 30
         settings.report_expanded = False
@@ -806,7 +818,8 @@ def main():
         )
         assert ("alert", True) not in ignored_long_layout.events
         assert all(len(poly.vertices) == 5 for poly in ngon_mesh.polygons)
-        settings.ignore_ngons = False
+        if ngon_mesh.uv_layers:
+            ngon_mesh.uv_layers.remove(ngon_mesh.uv_layers.active)
 
         bpy.ops.object.select_all(action="DESELECT")
         for obj in (first, second):
@@ -860,6 +873,61 @@ def main():
         assert scene.cs2_batch_export_report == preserved_report
         assert len(scene.cs2_batch_export_report_rows) == preserved_rows
 
+        decal = make_mesh_object("RoadMarking", material_name=False)
+        regular = make_mesh_object("RegularNoMaterial", material_name=False)
+        bpy.ops.object.select_all(action="DESELECT")
+        decal.select_set(True)
+        bpy.context.view_layer.objects.active = decal
+        original_mesh = decal.data
+        original_matrix = decal.matrix_world.copy()
+        assert bpy.ops.cs2_batch.define_decals() == {"FINISHED"}
+        assert bpy.ops.cs2_batch.define_decals() == {"FINISHED"}
+        assert len(settings.decals) == 1
+        assert not scene.cs2_batch_export_report
+        decal.name = "RoadMarkingRenamed"
+        mixed = addon.collect_issues(bpy.context, [decal, regular], "", check_existing=False)
+        assert not [issue for issue in mixed if issue.object_name == decal.name]
+        assert any(issue.object_name == regular.name and issue.message == "No material" for issue in mixed)
+        decal.data.materials.append(bpy.data.materials.new("DecalMaterial"))
+        assert any(issue.message == "Decal has materials" for issue in addon.collect_issues(bpy.context, [decal], ""))
+        decal.data.materials.clear()
+        decal.data.uv_layers.remove(decal.data.uv_layers.active)
+        assert any(issue.message == "No UV map" for issue in addon.collect_issues(bpy.context, [decal], ""))
+        decal.data.uv_layers.new(name="UVMap")
+        settings.stop_on_warnings = True
+        assert bpy.ops.cs2_batch.export_selected(source="SELECTION") == {"FINISHED"}
+        assert addon.export_path(Path(output_dir), decal.name).is_file()
+        assert set(bpy.context.selected_objects) == {decal}
+        assert bpy.context.view_layer.objects.active == decal
+        assert decal.data == original_mesh and decal.matrix_world == original_matrix
+        assert not decal.material_slots
+        decal_layout = FakeLayout()
+        addon.CS2BATCH_PT_panel.draw(SimpleNamespace(layout=decal_layout), bpy.context)
+        checkbox = next(event[3] for event in decal_layout.events if event[:3] == ("operator_options", "cs2_batch.define_decals", "Decals"))
+        assert checkbox["icon"] == "CHECKBOX_HLT" and not checkbox["emboss"]
+        assert next(event[2] for event in decal_layout.events if event[:2] == ("operator_properties", "cs2_batch.define_decals")).clear
+        regular.select_set(True)
+        mixed_layout = FakeLayout()
+        addon.CS2BATCH_PT_panel.draw(SimpleNamespace(layout=mixed_layout), bpy.context)
+        mixed_checkbox = next(event[3] for event in mixed_layout.events if event[:3] == ("operator_options", "cs2_batch.define_decals", "Decals"))
+        assert mixed_checkbox["icon"] == "CHECKBOX_DEHLT"
+        assert not next(event[2] for event in mixed_layout.events if event[:2] == ("operator_properties", "cs2_batch.define_decals")).clear
+        regular.select_set(False)
+        assert bpy.ops.cs2_batch.define_decals(clear=True) == {"FINISHED"}
+        assert not settings.decals
+        assert any(issue.message == "No material" for issue in addon.collect_issues(bpy.context, [decal], ""))
+        assert bpy.ops.cs2_batch.define_decals() == {"FINISHED"}
+        bpy.data.objects.remove(decal, do_unlink=True)
+        regular.select_set(True)
+        assert bpy.ops.cs2_batch.define_decals(clear=True) == {"FINISHED"}
+        assert not settings.decals
+
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mw_reliability_tests", Path(__file__).with_name("test_export_reliability.py"))
+        reliability = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reliability)
+        run_reliability = reliability.run
+        run_reliability(addon)
         print("MW_CS2_BATCH_EXPORTER_TEST_OK")
     finally:
         shutil.rmtree(output_dir)

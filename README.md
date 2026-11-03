@@ -4,7 +4,7 @@
 
 MW CS2 Batch Exporter is a Blender add-on for exporting Cities: Skylines II mesh sets. It exports every mesh in the chosen source as a separate FBX file, preserves each Blender object name as the filename, and groups related objects into an asset folder.
 
-This guide covers version **0.1.25**.
+This guide covers version **0.1.26**.
 
 ## Contents
 
@@ -43,7 +43,7 @@ it from the MW repository.
 
 For a manual installation:
 
-1. Download `mw_cs2_batch_exporter-0.1.25.zip` from the repository's latest release or `dist` folder.
+1. Download `mw_cs2_batch_exporter-0.1.26.zip` from the repository's latest release or `dist` folder.
 2. In Blender, open **Edit > Preferences**.
 3. Open **Add-ons**, or **Get Extensions** on Blender versions that use the Extensions interface.
 4. Choose **Install from Disk** and select the ZIP file. Do not extract it first.
@@ -62,7 +62,7 @@ Before checking or exporting:
 2. Set **Unit System** to **Metric**.
 3. Set **Unit Scale** to **1.0**. One Blender unit then represents one metre.
 4. Give every export mesh its final, portable object name.
-5. Apply object rotation and scale with **Object > Apply > Rotation & Scale**. The resulting rotation must be `0, 0, 0` and scale must be `1, 1, 1`.
+5. Apply object rotation and scale with **Object > Apply > Rotation & Scale**. The effective local rotation must be identity and scale must be `1, 1, 1`. Euler, Quaternion and Axis-Angle modes are supported; equivalent full-turn and signed-quaternion identities are accepted within floating-point tolerance. Delta rotation and scale are also checked.
 6. Confirm that every mesh contains faces.
 7. Add and activate the intended UV map.
 8. Review material slots for the object's CS2 role.
@@ -71,7 +71,7 @@ The add-on checks the scene but does not repair it. It does not apply transforms
 
 ## Understand names and output folders
 
-Each mesh is written as `<ObjectName>.fbx`. Related CS2 suffixes are removed from the end of the name to determine the shared asset folder.
+Each mesh is written to its parent asset folder using the canonical filename `<Asset>[<LOD>][<Shader>].fbx`. The asset name keeps its original spelling and can contain underscores.
 
 For example, exporting these objects:
 
@@ -97,18 +97,23 @@ creates:
     └── Station_Wio.fbx
 ```
 
-The recognised grouping suffixes are:
+Use one optional LOD suffix (`_LOD1` or `_LOD2`) followed by one optional shader
+suffix (`_Win`, `_Wif`, `_Wio`, `_Wim`, `_Gls`, `_Gra`, or `_Wat`).
+With neither suffix, the file is the main mesh. For example, `House_LOD1_Wif.fbx`
+is the frosted window submesh for LOD1 of `House`. This order follows the
+[CS2 building pipeline examples](https://cs2.paradoxwikis.com/Asset_Pipeline:_Buildings#Example_Export)
+and the CS2 Settings Generator classifier.
 
-- `_LOD<number>`
-- `_Win`
-- `_Wif`
-- `_Wio`
-- `_Wim`
-- `_Gls`
-- `_Gra`
-- `_Wat`
+Preflight blocks reversed suffixes such as `House_Wif_LOD1`, repeated suffixes,
+conflicting mesh roles, and unsupported LOD numbers. It shows the current
+filename and a suggested rename when the intended role is clear.
 
-Suffix matching is case-insensitive and repeated suffixes are removed from the end. For example, `Station_Win_LOD1` is grouped in the `Station` folder while keeping the filename `Station_Win_LOD1.fbx`.
+Suffixes are read case-insensitively and written in the casing shown above.
+For example, `House_lod1_wif` is recognised, but preflight blocks export until
+you rename the Blender object to `House_LOD1_Wif`. This keeps the mesh name
+inside the FBX identical to its filename. The exporter leaves Blender object
+names unchanged. Keep the asset portion spelled and
+capitalised identically across related objects.
 
 `_Wif` and `_Wio` follow the same rules as `_Win`: they need no textures and should have zero material slots. The exporter warns about existing material slots; it does not remove them. UV checks still apply.
 
@@ -128,6 +133,20 @@ Use this mode for an explicit selection in the active view layer.
 8. Click **Export FBX Files**.
 
 The original selection and active object are restored after the export attempt.
+
+## Define decals
+
+Select decal meshes in the viewport and enable the **Decals** checkbox under **Options**.
+Designated decals expect zero material slots and do not receive a **No material**
+warning. Existing slots produce **Decal has materials**; UV and all other checks
+still apply. Uncheck **Decals** on selected meshes to restore normal checks.
+The checkbox is checked when all selected meshes are decals. For a mixed
+selection, checking it marks every selected mesh as a decal.
+
+Designations are saved with the blend file, survive object renaming, and apply in
+both selected-object and collection export modes. The checkbox changes only
+exporter settings, without modifying mesh data, materials, names, or selection.
+Run **Check Export Source** again after changing designations.
 
 ## Export collections
 
@@ -160,7 +179,7 @@ Objects must be available in the active view layer. A mesh found in a chosen col
 | Destination | **Export Folder** | Chooses the parent folder in which asset folders will be created or reused. |
 | Options | **Overwrite Existing** | Allows same-named FBX files to be replaced. Off by default. |
 | Options | **Stop on Warnings** | Treats remaining warnings as export blockers. |
-| Options | **Ignore N-gons** | Omits intentional n-gons from the report. **Triangulate Faces** remains disabled. |
+| Options | **Decals** | Marks selected meshes as decals; uncheck to restore normal material checks. |
 | Export Source | **Selected Objects** | Uses selected meshes in the active view layer. |
 | Export Source | **Collections** | Uses the quick collection picker or the visible collection list. |
 | Export Source | **Check Export Source** | Runs preflight without exporting or changing the scene. |
@@ -216,13 +235,11 @@ Warnings allow export by default. Enable **Stop on Warnings** when every warning
 | **Empty material slots** | A main or LOD1 mesh has an unassigned material slot. Remove or fill empty slots. |
 | **No material** | A main or LOD1 mesh has no material. These meshes normally use one material. |
 | **Multiple materials** | A main or LOD1 mesh has more than one assigned material. Confirm that this matches the intended CS2 material layout. |
-| **LOD2 has materials** | A name containing `_LOD2` has material slots. LOD2 meshes should normally have zero material slots. |
+| **LOD2 has materials** | A mesh classified as LOD2 has material slots. LOD2 meshes should normally have zero material slots. |
 | **Submesh has materials** | A `_Win`, `_Wif`, `_Wio`, `_Wim`, `_Gls`, `_Gra`, or `_Wat` mesh has material slots. These special meshes should normally have zero slots. |
-| **N-gons used** | The mesh contains faces with more than four vertices, which may be triangulated differently by downstream tools or CS2 import. |
 
 Material names do not need to match object names. Main and LOD1 meshes can share one material and texture set. The add-on checks slot layout, not a required material-name pattern.
 
-Use **Ignore N-gons** only after deciding the faces are intentional. The option hides the warning; it does not alter the mesh. **Triangulate Faces** remains disabled in the FBX preset.
 
 ## FBX export settings
 
@@ -257,7 +274,7 @@ The add-on is designed to leave Blender source data unchanged:
 - existing FBX files are protected unless **Overwrite Existing** is enabled
 - clearing the export selection or report never deletes exported files
 
-The add-on creates the chosen destination and required asset subfolders when necessary. If an unexpected FBX exporter error occurs partway through a batch, files already completed remain in the destination and the report states how many were exported before the failure. Review those files before retrying, especially before enabling overwrite.
+The add-on stages the complete batch in a temporary folder on the destination filesystem and parses each FBX to check for mesh geometry before publishing any files. Existing files are backed up before replacement; handled failures and interruptions roll back replacements. If rollback fails, the report identifies a partial failure and the retained recovery folder. Individual file replacement is atomic, but a whole batch is not a filesystem transaction: a Blender crash or power loss during publication can leave a mixed set and retained backups. Review the report and recovery files before retrying.
 
 ## Troubleshooting
 
@@ -287,10 +304,6 @@ This is overwrite protection. Confirm the destination and object name, then eith
 ### Material warning does not open Material Properties
 
 The object is still selected, but Blender can switch only an existing Properties editor. Change any area to **Properties**, then click the material warning again.
-
-### A warning disappeared after enabling Ignore N-gons
-
-This is expected for **N-gons used** only. The mesh is unchanged and **Triangulate Faces** remains disabled during export.
 
 ### Exported files are in an unexpected folder
 

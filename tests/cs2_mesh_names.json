@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "input": "Old_Town_House.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": null,
+      "canonical": "Old_Town_House.fbx"
+    },
+    {
+      "input": "Old_Town_House_Win.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": "Win",
+      "canonical": "Old_Town_House_Win.fbx"
+    },
+    {
+      "input": "Old_Town_House_Wif.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": "Wif",
+      "canonical": "Old_Town_House_Wif.fbx"
+    },
+    {
+      "input": "Old_Town_House_Wio.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": "Wio",
+      "canonical": "Old_Town_House_Wio.fbx"
+    },
+    {
+      "input": "Old_Town_House_Wim.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": "Wim",
+      "canonical": "Old_Town_House_Wim.fbx"
+    },
+    {
+      "input": "Old_Town_House_Gls.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": "Gls",
+      "canonical": "Old_Town_House_Gls.fbx"
+    },
+    {
+      "input": "Old_Town_House_Gra.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": "Gra",
+      "canonical": "Old_Town_House_Gra.fbx"
+    },
+    {
+      "input": "Old_Town_House_Wat.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 0,
+      "shader": "Wat",
+      "canonical": "Old_Town_House_Wat.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": null,
+      "canonical": "Old_Town_House_LOD1.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1_Win.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": "Win",
+      "canonical": "Old_Town_House_LOD1_Win.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1_Wif.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": "Wif",
+      "canonical": "Old_Town_House_LOD1_Wif.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1_Wio.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": "Wio",
+      "canonical": "Old_Town_House_LOD1_Wio.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1_Wim.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": "Wim",
+      "canonical": "Old_Town_House_LOD1_Wim.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1_Gls.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": "Gls",
+      "canonical": "Old_Town_House_LOD1_Gls.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1_Gra.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": "Gra",
+      "canonical": "Old_Town_House_LOD1_Gra.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD1_Wat.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 1,
+      "shader": "Wat",
+      "canonical": "Old_Town_House_LOD1_Wat.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": null,
+      "canonical": "Old_Town_House_LOD2.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2_Win.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": "Win",
+      "canonical": "Old_Town_House_LOD2_Win.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2_Wif.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": "Wif",
+      "canonical": "Old_Town_House_LOD2_Wif.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2_Wio.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": "Wio",
+      "canonical": "Old_Town_House_LOD2_Wio.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2_Wim.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": "Wim",
+      "canonical": "Old_Town_House_LOD2_Wim.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2_Gls.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": "Gls",
+      "canonical": "Old_Town_House_LOD2_Gls.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2_Gra.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": "Gra",
+      "canonical": "Old_Town_House_LOD2_Gra.fbx"
+    },
+    {
+      "input": "Old_Town_House_LOD2_Wat.fbx",
+      "valid": true,
+      "asset": "Old_Town_House",
+      "lod": 2,
+      "shader": "Wat",
+      "canonical": "Old_Town_House_LOD2_Wat.fbx"
+    },
+    {
+      "input": "House_LOD1_Wif.fbx",
+      "valid": true,
+      "asset": "House",
+      "lod": 1,
+      "shader": "Wif",
+      "canonical": "House_LOD1_Wif.fbx"
+    },
+    {
+      "input": "House_lOd1_wIf.fbx",
+      "valid": true,
+      "asset": "House",
+      "lod": 1,
+      "shader": "Wif",
+      "canonical": "House_LOD1_Wif.fbx"
+    },
+    {
+      "input": "House_LOD2_Annex.fbx",
+      "valid": true,
+      "asset": "House_LOD2_Annex",
+      "lod": 0,
+      "shader": null,
+      "canonical": "House_LOD2_Annex.fbx"
+    },
+    {
+      "input": "House_Wif_LOD1.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": "House_LOD1_Wif.fbx"
+    },
+    {
+      "input": "House_Wif_Wif.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": "House_Wif.fbx"
+    },
+    {
+      "input": "House_LOD1_LOD1.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": "House_LOD1.fbx"
+    },
+    {
+      "input": "House_LOD1_LOD2.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": null
+    },
+    {
+      "input": "House_Wif_Wio.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": null
+    },
+    {
+      "input": "House_LOD3.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": null
+    },
+    {
+      "input": "_LOD1_Wif.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": null
+    },
+    {
+      "input": "Win_LOD1.fbx",
+      "valid": true,
+      "asset": "Win",
+      "lod": 1,
+      "shader": null,
+      "canonical": "Win_LOD1.fbx"
+    },
+    {
+      "input": "_LOD1.fbx",
+      "valid": false,
+      "asset": null,
+      "lod": null,
+      "shader": null,
+      "canonical": null
+    }
+  ]
+}
