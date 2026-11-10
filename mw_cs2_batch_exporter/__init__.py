@@ -25,7 +25,7 @@ from bpy.types import Operator, Panel, PropertyGroup, UIList
 bl_info = {
     "name": "MW CS2 Batch Exporter",
     "author": "MW",
-    "version": (0, 1, 26),
+    "version": (0, 1, 27),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > MW CS2 Export",
     "description": "Export selected meshes as individual CS2-ready FBX files",
@@ -104,6 +104,15 @@ FBX_EXPORT_SETTINGS = {
     "bake_anim_simplify_factor": 1.0,
     "embed_textures": False,
 }
+
+
+def _fbx_export_settings():
+    settings = FBX_EXPORT_SETTINGS.copy()
+    smoothing = bpy.ops.export_scene.fbx.get_rna_type().properties["mesh_smooth_type"]
+    if settings["mesh_smooth_type"] not in smoothing.enum_items:
+        # Blender 4.2 cannot write smoothing groups. Export sharp edges and normals.
+        settings["mesh_smooth_type"] = "EDGE"
+    return settings
 
 
 def _distance_to_segment(px, py, ax, ay, bx, by):
@@ -223,13 +232,14 @@ def _status_icon_options(severity):
         return {"icon_value": _WARNING_ICON_ID}
     if severity == "PASS" and _custom_status_icons_ready():
         return {"icon_value": _READY_ICON_ID}
-    return {
-        "icon": {
-            "ERROR": "STATUS_ERROR_FILLED",
-            "WARNING": "STATUS_WARNING_FILLED",
-            "PASS": "CHECKMARK",
-        }.get(severity, "INFO")
-    }
+    if severity in {"ERROR", "WARNING"}:
+        icon = f"STATUS_{severity}_FILLED"
+        icons = bpy.types.UILayout.bl_rna.functions["label"].parameters["icon"].enum_items
+        if icon not in icons:
+            icon = "ERROR" if severity == "ERROR" else "INFO"
+    else:
+        icon = "CHECKMARK" if severity == "PASS" else "INFO"
+    return {"icon": icon}
 
 
 def _custom_status_icons_ready():
@@ -279,10 +289,17 @@ def _validate_staged_fbx(path):
         raise RuntimeError(f"No mesh geometry in staged FBX: {path.name}")
 
 
+class _PublishError(RuntimeError):
+    def __init__(self, destination, message):
+        super().__init__(message)
+        self.destination = destination
+
+
 def _publish_staged_batch(pairs, staging, overwrite):
     """Replace individual files atomically; undo the batch on handled failure."""
     backups = {}
     installed = []
+    destination = None
     try:
         for index, (source, destination) in enumerate(pairs):
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -303,20 +320,20 @@ def _publish_staged_batch(pairs, staging, overwrite):
                 installed.append(destination)
     except BaseException as exc:
         failures = []
-        for destination in reversed(installed):
+        for installed_path in reversed(installed):
             try:
-                if destination in backups:
-                    os.replace(backups[destination], destination)
+                if installed_path in backups:
+                    os.replace(backups[installed_path], installed_path)
                 else:
-                    destination.unlink(missing_ok=True)
+                    installed_path.unlink(missing_ok=True)
             except OSError as rollback_error:
-                failures.append(f"{destination}: {rollback_error}")
+                failures.append(f"{installed_path}: {rollback_error}")
         if failures:
-            raise RuntimeError(
-                f"Partial failure; rollback incomplete. Recovery files retained at {staging}. "
+            raise _PublishError(
+                destination, f"Partial failure; rollback incomplete. Recovery files retained at {staging}. "
                 + "; ".join(failures)
             ) from exc
-        raise RuntimeError(f"Batch failed; destination files restored: {exc}") from exc
+        raise _PublishError(destination, f"Batch failed; destination files restored: {exc}") from exc
 
 
 def _counted(value, singular):
@@ -649,6 +666,13 @@ def _draw_wrapped_label(layout, text, icon="NONE", icon_value=0, width=48, alert
             row.label(text=line, icon_value=icon_value)
         else:
             row.label(text=line, icon=icon if index == 0 else "BLANK1")
+
+
+def _collapsed_report_summary(scene):
+    heading = scene.cs2_batch_export_report.partition("\n")[0].removeprefix("HEADER\t")
+    if heading.startswith("Export Summary:"):
+        return heading
+    return _report_summary(scene)
 
 
 def _report_summary(scene):
@@ -1068,17 +1092,21 @@ class CS2BATCH_OT_export(Operator):
     def execute(self, context):
         scene = context.scene
         settings = scene.cs2_batch_export_settings
+        def summary(exported=0, verified=0, skipped=0, failed=0):
+            return (f"Export Summary: {exported} exported, {verified} verified, "
+                    f"{skipped} skipped, {failed} failed")
+
         if not _has_valid_export_destination(settings.export_directory):
             self.report({"ERROR"}, "Choose a valid export folder.")
             return {"CANCELLED"}
 
-        objects, report_objects, issues, source_label = _collect_preflight(
+        objects, report_objects, issues, _ = _collect_preflight(
             context, settings, self.source,
         )
         errors = [issue for issue in issues if issue.severity == "ERROR"]
         warnings = [issue for issue in issues if issue.severity == "WARNING"]
         if errors or (settings.stop_on_warnings and warnings):
-            _store_report(scene, issues, "Export stopped by preflight", report_objects)
+            _store_report(scene, issues, summary(skipped=len(objects)), report_objects)
             self.report({"ERROR"}, "Export stopped. Review the preflight report.")
             return {"CANCELLED"}
 
@@ -1086,39 +1114,57 @@ class CS2BATCH_OT_export(Operator):
         try:
             directory.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            issues.append(Issue("ERROR", "Export", "Cannot create folder", str(exc)))
-            _store_report(scene, issues, "Export failed", report_objects)
+            issues.append(Issue("ERROR", "Export", "Cannot create folder",
+                                f"{directory}: {exc}. Check write permissions or choose another folder."))
+            _store_report(scene, issues, summary(failed=len(objects)), report_objects)
             self.report({"ERROR"}, "Could not create the export folder.")
             return {"CANCELLED"}
 
         original_selection = list(context.selected_objects)
         original_active = context.view_layer.objects.active
-        exported = []
         staging = None
+        obj = destination = None
+        verified = 0
+        names_by_destination = {}
         try:
             staging = Path(tempfile.mkdtemp(prefix=".mw-cs2-stage-", dir=directory))
             pairs = []
+            preset = _fbx_export_settings()
             for obj in objects:
+                destination = export_path(directory, obj.name)
                 bpy.ops.object.select_all(action="DESELECT")
                 obj.select_set(True)
                 context.view_layer.objects.active = obj
-                destination = export_path(directory, obj.name)
                 staged = staging / f"{len(pairs)}.fbx"
                 result = bpy.ops.export_scene.fbx(
                     filepath=os.fspath(staged),
                     check_existing=False,
-                    **FBX_EXPORT_SETTINGS,
+                    **preset,
                 )
                 if result != {"FINISHED"}:
                     raise RuntimeError(f"Blender FBX exporter returned {result!r}")
                 _validate_staged_fbx(staged)
+                verified += 1
                 pairs.append((staged, destination))
+                names_by_destination[destination] = obj.name
+            obj = destination = None
             _publish_staged_batch(pairs, staging, settings.overwrite_existing)
-            exported = [os.fspath(destination.relative_to(directory)) for _, destination in pairs]
             shutil.rmtree(staging, ignore_errors=True)
         except (Exception, KeyboardInterrupt) as exc:
-            issues.append(Issue("ERROR", "Export", "FBX export failed", str(exc)))
-            _store_report(scene, issues, f"Export failed; no complete batch published: {exc}", report_objects)
+            if isinstance(exc, _PublishError):
+                destination = exc.destination
+            name = obj.name if obj else names_by_destination.get(destination)
+            failed = 1 if name else len(objects)
+            detail = f"{destination or directory}: {exc}"
+            if obj:
+                detail += ". Check the named source mesh and Blender's FBX exporter."
+            elif not staging:
+                detail += ". Check write permissions or choose another folder."
+            else:
+                detail += ". Check the destination and any recovery instructions before retrying."
+            issues.append(Issue("ERROR", name or "Export", "FBX export failed", detail))
+            _store_report(scene, issues, summary(verified=verified,
+                          skipped=len(objects) - failed, failed=failed), report_objects)
             self.report({"ERROR"}, "Export failed. Review the report for destination/recovery details.")
             return {"CANCELLED"}
         finally:
@@ -1133,9 +1179,9 @@ class CS2BATCH_OT_export(Operator):
 
         _store_report(
             scene, warnings,
-            f"Exported {len(exported)} file(s) from {source_label} to {directory}", report_objects,
+            summary(exported=len(pairs), verified=verified), report_objects,
         )
-        self.report({"INFO"}, f"Exported {len(exported)} individual FBX file(s).")
+        self.report({"INFO"}, f"Exported {len(pairs)} individual FBX file(s).")
         return {"FINISHED"}
 
 
@@ -1259,7 +1305,7 @@ class CS2BATCH_PT_panel(Panel):
             summary_severity = _report_summary_severity(scene)
             summary_icon = _status_icon_options(summary_severity)
             _draw_wrapped_label(
-                report, _report_summary(scene),
+                report, _collapsed_report_summary(scene),
                 width=report_width, alert=summary_severity == "ERROR",
                 **summary_icon,
             )

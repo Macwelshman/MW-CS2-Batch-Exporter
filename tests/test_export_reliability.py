@@ -66,7 +66,7 @@ def run(addon):
                 source.select_set(True)
                 bpy.context.view_layer.objects.active = source
                 path = root / f'{source.name}-{bake}.fbx'
-                preset = dict(addon.FBX_EXPORT_SETTINGS, bake_space_transform=bake)
+                preset = dict(addon._fbx_export_settings(), bake_space_transform=bake)
                 assert bpy.ops.export_scene.fbx(filepath=str(path), **preset) == {'FINISHED'}
                 addon._validate_staged_fbx(path)
                 before = set(scene.objects)
@@ -108,6 +108,7 @@ def run(addon):
             if calls[0] == 2:
                 raise KeyboardInterrupt('injected export interruption')
             return real_export(**kwargs)
+        interrupted_export.get_rna_type = real_export.get_rna_type
         selected = list(bpy.context.selected_objects)
         active = bpy.context.view_layer.objects.active
         with patch.object(addon, '_collect_preflight', return_value=(objects, objects, [], 'test')), \

@@ -96,7 +96,7 @@ def assert_cancelled_error(operator_call, expected_message):
 def main():
     print(f"MW_CS2_TEST_BLENDER_VERSION: {bpy.app.version_string}", flush=True)
     addon.register()
-    assert addon.bl_info["version"] == (0, 1, 26)
+    assert addon.bl_info["version"] == (0, 1, 27)
     assert addon.FBX_EXPORT_SETTINGS == {
         "path_mode": "AUTO",
         "batch_mode": "OFF",
@@ -140,8 +140,12 @@ def main():
         "ERROR", "INFO", "CHECKMARK", "OBJECT_DATA", "PREFERENCES",
         "BLANK1", "FILE_FOLDER", "OUTLINER_COLLECTION", "X", "ADD", "REMOVE", "TRASH",
         "TRIA_DOWN", "TRIA_RIGHT", "MATERIAL",
-        "STATUS_ERROR", "STATUS_ERROR_FILLED", "STATUS_WARNING", "STATUS_WARNING_FILLED",
     } <= icons
+    error_icon = "STATUS_ERROR_FILLED" if "STATUS_ERROR_FILLED" in icons else "ERROR"
+    warning_icon = "STATUS_WARNING_FILLED" if "STATUS_WARNING_FILLED" in icons else "INFO"
+    smoothing = bpy.ops.export_scene.fbx.get_rna_type().properties["mesh_smooth_type"].enum_items
+    expected_smoothing = "SMOOTH_GROUP" if "SMOOTH_GROUP" in smoothing else "EDGE"
+    assert addon._fbx_export_settings() == dict(addon.FBX_EXPORT_SETTINGS, mesh_smooth_type=expected_smoothing)
     column_parameters = bpy.types.UILayout.bl_rna.functions["column"].parameters
     assert "heading" in {parameter.identifier for parameter in column_parameters}
     assert 0.0 < addon.REPORT_ENTRY_SPACING < 0.3
@@ -160,9 +164,9 @@ def main():
     original_ready_id = addon._READY_ICON_ID
     addon._WARNING_ICON_ID = 2_147_483_647
     addon._READY_ICON_ID = 2_147_483_646
-    assert addon._status_icon_options("WARNING") == {"icon": "STATUS_WARNING_FILLED"}
+    assert addon._status_icon_options("WARNING") == {"icon": warning_icon}
     assert addon._status_icon_options("PASS") == {"icon": "CHECKMARK"}
-    assert addon._status_icon_options("ERROR") == {"icon": "STATUS_ERROR_FILLED"}
+    assert addon._status_icon_options("ERROR") == {"icon": error_icon}
     addon._WARNING_ICON_ID = original_warning_id
     addon._READY_ICON_ID = original_ready_id
     assert addon._counted(0, "warning") == "0 warnings"
@@ -642,7 +646,7 @@ def main():
             0, scene, "cs2_batch_export_report_index", 0,
         )
         assert any(
-            event[0] == "label_options" and event[2].get("icon") == "STATUS_ERROR_FILLED"
+            event[0] == "label_options" and event[2].get("icon") == error_icon
             for event in error_layout.events
         )
         assert ("alert", True) in error_layout.events
@@ -665,7 +669,7 @@ def main():
             event[2] for event in error_header_layout.events
             if event[:2] == ("label_options", "1 error")
         )
-        assert error_count_style["icon"] == "STATUS_ERROR_FILLED"
+        assert error_count_style["icon"] == error_icon
         settings.report_expanded = False
         error_summary_layout = FakeLayout()
         addon.CS2BATCH_PT_panel.draw(SimpleNamespace(layout=error_summary_layout), bpy.context)
@@ -673,7 +677,7 @@ def main():
             event[2] for event in error_summary_layout.events
             if event[:2] == ("label_options", "1 object checked · 1 error · 0 warnings")
         )
-        assert error_summary_style["icon"] == "STATUS_ERROR_FILLED"
+        assert error_summary_style["icon"] == error_icon
         assert ("alert", True) in error_summary_layout.events
 
         bpy.ops.object.select_all(action="DESELECT")
@@ -928,6 +932,9 @@ def main():
         spec.loader.exec_module(reliability)
         run_reliability = reliability.run
         run_reliability(addon)
+        import runpy
+        reference = runpy.run_path(str(Path(__file__).with_name("test_reference_asset.py")))
+        reference["run"](addon, globals().get("settings_scanner"))
         print("MW_CS2_BATCH_EXPORTER_TEST_OK")
     finally:
         shutil.rmtree(output_dir)

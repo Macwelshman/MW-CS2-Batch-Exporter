@@ -3,7 +3,7 @@
 
 MW CS2 Batch Exporter is a Blender add-on for exporting Cities: Skylines II mesh sets. It exports every mesh in the chosen source as a separate FBX file, preserves each Blender object name as the filename, and groups related objects into an asset folder.
 
-This guide covers version **0.1.26**.
+This guide covers version **0.1.27**.
 
 ## Contents
 
@@ -42,7 +42,7 @@ it from the MW repository.
 
 For a manual installation:
 
-1. Download `mw_cs2_batch_exporter-0.1.26.zip` from the repository's latest release or `dist` folder.
+1. Download `mw_cs2_batch_exporter-0.1.27.zip` from the repository's latest release or `dist` folder.
 2. In Blender, open **Edit > Preferences**.
 3. Open **Add-ons**, or **Get Extensions** on Blender versions that use the Extensions interface.
 4. Choose **Install from Disk** and select the ZIP file. Do not extract it first.
@@ -251,7 +251,7 @@ The add-on applies one fixed preset to every mesh:
 - scale `1.0`; **Apply Scalings: All Local**
 - forward axis `-Z`; up axis `Y`
 - **Apply Unit**, **Use Space Transform**, and **Apply Transform** enabled
-- **Smoothing Groups** with evaluated modifiers enabled
+- **Smoothing Groups** with evaluated modifiers enabled. Blender 4.2.0 uses **Edge** smoothing because its FBX exporter lacks Smoothing Groups.
 - subdivision surfaces, loose edges, triangulate faces, and tangent space disabled
 - vertex colours exported as **sRGB** without prioritising the active colour
 - primary bone axis `Y`; secondary bone axis `X`; armature FBX node type **Null**
@@ -260,7 +260,9 @@ The add-on applies one fixed preset to every mesh:
 - sampling rate `1.0`; simplify `1.0`
 - textures not embedded
 
-Blender controls the FBX dialect written by its built-in exporter. Validate a representative export in the current Cities: Skylines II Editor before relying on the workflow for a full asset batch.
+Blender controls the FBX dialect written by its built-in exporter. Validate a representative export in the current Cities: Skylines II Editor before relying on the workflow for a full asset batch. See the
+[native CS2 import acceptance checklist](docs/CS2_IMPORT_ACCEPTANCE.md) and
+[automated reference asset tests](tests/README.md).
 
 ## File and scene safety
 
@@ -272,6 +274,16 @@ The add-on is designed to leave Blender source data unchanged:
 - collection mode does not require the objects to remain selected
 - existing FBX files are protected unless **Overwrite Existing** is enabled
 - clearing the export selection or report never deletes exported files
+
+The **Export Summary** shows four counts. **Exported** means files published
+as a complete batch. **Verified** counts staged FBXs that parsed and contained
+mesh geometry, even if the batch did not publish. **Skipped** counts other
+requested mesh files withheld when preflight or the batch stops. **Failed**
+counts the file that triggered an export or publish error, or the entire batch
+if the destination failed before any individual file could be attempted.
+Expand the report to see the affected Blender object, intended filename, and
+what to check before retrying. If rollback was incomplete, follow the recovery
+instructions in the report before retrying.
 
 The add-on stages the complete batch in a temporary folder on the destination filesystem and parses each FBX to check for mesh geometry before publishing any files. Existing files are backed up before replacement; handled failures and interruptions roll back replacements. If rollback fails, the report identifies a partial failure and the retained recovery folder. Individual file replacement is atomic, but a whole batch is not a filesystem transaction: a Blender crash or power loss during publication can leave a mixed set and retained backups. Review the report and recovery files before retrying.
 
